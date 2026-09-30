@@ -1,0 +1,43 @@
+# Inbox
+
+One line per moment of friction, appended the instant it happens. No diagnosis, no
+formatting rules, no shame in a vague entry. Triage into full reports later.
+
+Format (loose): `YYYY-MM-DD | component | what hurt`
+
+Tag agent-specific friction with `[agent]`.
+
+Nimony checkout for every entry below unless stated: 0e1761f.
+
+---
+
+<!-- append below -->
+2026-09-23 | nimony | GOOD, worth keeping: a first probe (ref case object, closures, `Table`, `Lock`, float `$`) compiled and ran on the first attempt in 1.3s.
+2026-09-23 | stdlib | `std/os` has no `sleep`. Nim 2's `os.sleep(ms)` is the reflex; nimony has only `posix.nanosleep` (and `winlean.Sleep`), so a portable "wait a second" means writing the `when defined(windows)` split yourself.
+2026-09-23 | stdlib | No file-mtime helper (`getLastModificationTime` in Nim 2). Polling a file for changes — what json-server's watcher needs — means `posix.stat` + `st_mtim` by hand.
+2026-09-23 | note | `std/json` is a read-only cursor over a NIF token buffer (`JsonTree`/`JsonNode`, `=copy` is `.error`). There is no mutable DOM like Nim 2's `JsonNode` ref tree, so anything that edits a document in place (json-server's whole data model) needs its own value type. Deliberate design, but the module doc never says "if you need to mutate, you're on your own".
+2026-09-23 | nimony | [agent] `type E = object of CatchableError` (Nim 2 reflex) → `[Error] invalid parent object type(err . "cannot inherit from type\3A undeclared identifier\3A CatchableError")`. No file, no line (the whole module is ~500 lines), bracket-prefix shape, and the payload is raw NIF: the `(err . "...")` node printed verbatim with `:` escaped as `\3A`. Three distinct problems in one line. The message does not mention that nimony errors are `ErrorCode` values, which is the actual next step.
+2026-09-23 | stdlib | `parseutils.parseInt(s, var int)` does not exist (Nim 2 has it); only `parseBiggestInt`. With both strutils and parseutils imported, `parseInt(s, e)` says `[2] too many arguments (declared in strutils.nim(1583, 1))` — it names the one overload that exists, so it reads as "you called strutils wrong" rather than "parseutils has no parseInt".
+2026-09-23 | nimony | Promoted to friction/0004: the not-nil proof is lost in a chained `and` (`v != nil and true and f(v)` rejected).
+2026-09-23 | nimony | A nil-guard *proc* (`proc isObject(v: nil T): bool = v != nil and ...`) never narrows at the call site, so every caller re-spells `!= nil` inline. A template works (it inlines the comparison), which is the workaround — but only in `if` position, because of the `and`-chain line above.
+2026-09-23 | nimony | `cannot prove expression is not nil: \`x` — the error at jsonvalue.nim(65,12) printed an unbalanced backtick before the name. Cosmetic; later messages for the same check print `v` without it.
+2026-09-23 | nimony | Promoted to friction/0002: an if-expression is typed from its first branch — `if b: nil else: o` crashes hexer (`[Bug] bug in isTrival computation`), and a nilable `else` fails the nil proof.
+2026-09-23 | stdlib | `strutils.parseInt` is `.raises`, so it cannot be called from a non-raising proc without a `try` — `cannot call a routine marked as .raises outside of a try..except block` points at the call, fine, but the non-raising alternative (`parseutils.parseBiggestInt` + a var) is two lines and a type (`BiggestInt`) away. A `parseInt(s, default)` would cover the common case.
+2026-09-23 | stdlib | `algorithm.sort`/`sorted` take `cmp: proc (x, y: T): int` — a nimcall type, so a comparator that captures anything (sort-by-a-runtime-key, the json-server `_sort=-views,title` case) cannot be passed at all. Nim 2's `sort` took `{.closure.}`. Workaround: hand-written merge sort.
+2026-09-23 | nimony | The resulting mismatch leads with `[1] expected: openArray[T] but got: seq` (twice, once per overload) before `[2] .closure mismatch`. A `seq` is a fine `openArray`; the [1] lines are noise from the generic `T` failing to bind once [2] fails, and they are what a reader acts on first.
+2026-09-23 | nimony | GOOD: capturing a local in an anonymous proc without `.closure` → `cannot access local variable \`props\` from another routine; mark the proc with \`.closure\``. Names the variable, names the fix.
+2026-09-23 | nimony | Promoted to friction/0005: an undeclared identifier inside a tuple-unpacking `let` is reported as "expected tuple for tuple unpacking".
+2026-09-23 | nimony | [agent] `if not item[foreignKey].isNull:` (isNull a template: `v != nil and v.kind == JNull`) → `service.nim(67, 16) Error: cannot prove expression is not nil: \`x`. There is no `x` in that line or in the template; the name seems to be an internal temporary (or `[]`'s own parameter). The column points at the call, but the name sends you looking for a variable that does not exist. The cause (a call expression duplicated by template substitution is two unrelated values to the prover) is reasonable; the message should print the expression, `item[foreignKey]`.
+2026-09-23 | stdlib | `s.add @[a, b, c]` (append a whole seq) has no overload; Nim 2's `add(var seq[T], openArray[T])` is missing. The mismatch lists four candidates, one of which is my own unrelated `add(JsonValue, JsonValue)`, but not the one I expected to exist — nothing says "there is no seq-append; use a loop".
+2026-09-23 | nimony | Promoted to friction/0003: the `.raises` check reports `???` for a zero-argument call. Cause in `derefs.trCallArgs` (`n.endInfo`), same pattern as Summer 0002; 5-line fix tested at b2c2df7.
+2026-09-23 | nimony | Promoted to friction/0001: a `for` loop inside a `{.cast(noSideEffect).}` block in a `.passive` proc crashes hexer. Narrowed past the iterator: 4 lines, no imports.
+2026-09-23 | stdlib | C compiler warnings from stdlib codegen on every program that imports `std/httpserver`: `io_9q8ypu.c:1974: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]` in `connect_0_ioQ`, `void* ... = ((void*)addrLen_2)`. An int being passed where a pointer is expected in the io_uring connect path; harmless on 64-bit maybe, but it is exactly the kind of warning that hides a real one.
+2026-09-23 | stdlib | `std/parseopt` has no `shortNoVal`/`longNoVal` (Nim 2 has both), so it cannot know that `-p` takes a value: `-p 3000` parses as option `p` with an empty value, then an argument `3000`. Only `-p:3000` / `--port=3000` work — not how any Unix CLI (json-server's included) is invoked. Wrote a parser by hand.
+2026-09-23 | stdlib | `algorithm.sort`'s docstring recommends `sort(myStrArray, system.cmp)`; that line fails: `[2] expected: proc (x: T, y: T): int64 but got: auto` — an uninstantiated generic `cmp` does not bind to the proc-typed parameter. The mismatch again leads with the spurious `[1] expected: openArray[T] but got: seq`. The doc example should be `sort(a)` (the `Comparable` overload) or the generic should be instantiable from context.
+
+2026-09-23 | nimony | Re-checked every repro against upstream HEAD b2c2df7 (4 commits past 0e1761f, incl. #2575 iterinliner): all six reproduce unchanged.
+2026-09-23 | note | Differential testing against the real json-server (node 24, tools/difftest.py) found two of my own porting bugs that every unit test had passed: sirv's `text/html;charset=utf-8` spelling, and ICU collation order. Worth doing first next time, not last.
+2026-09-25 | note | Checked the "guessed" causes in 0001/0002/0004 against the b2c2df7 source; each report now has a verified cause, corrections and a tested `fix.diff`. 0001's crash is in `constparams`, not `coro_transform` (which builds the bad node), and the loop is incidental; 0002's type is lost after sema (`typenav` recomputes it), not in sema; 0004 is xelim's value-position `and` lowering, not the prover.
+2026-09-25 | nimony | The phantom `` `x `` in "cannot prove expression is not nil" (the `item[foreignKey].isNull` line above) is xelim's temp: `tempSymName` names temps `` "`x." & n `` and the renderer prints the basename, backtick included. The template really does call `[]` twice. Written up in 0004's notes; message fix in `0004/fix_message.diff`.
+2026-09-25 | nimony | hexer's `into:` assertion says "body did not consume all 176 children (left 144)", but the numbers are tokens (`cursorJump`), not children. There are 6 children in the 0001 case.
+2026-09-25 | tooling | [agent] `hastur build nimony` in a second worktree produced binaries without the worktree's edits. It builds into the shared `~/.cache/nim/{nimsem,nimony,hexer}_r`, which parallel sessions also write to (suspected, not proven). A per-worktree `--nimcache` fixed it. `hastur build nimony` also does not build nifler/nifmake/lengc.

@@ -1,0 +1,135 @@
+diff --git a/src/nimony/sem.nim b/src/nimony/sem.nim
+index 0987e5a..03d3668 100644
+--- a/src/nimony/sem.nim
++++ b/src/nimony/sem.nim
+@@ -2299,6 +2299,19 @@ proc semStmtBranch(c: var SemContext; dest: var TokenBuf; it: var Item; isNewSco
+   of VoidT:
+     # performs discard check:
+     semStmt c, dest, it.n, isNewScope
++  of NiltT:
++    # An earlier branch was the `nil` literal, which does not determine a
++    # type on its own: let this branch pick it (`if b: nil else: someRef`),
++    # provided it is something `nil` converts to.
++    var ex = Item(n: it.n, typ: c.types.autoType)
++    let start = dest.len
++    semExpr c, dest, ex
++    if classifyType(c, ex.typ) notin {NiltT, AutoT} and
++        classifyType(c, skipModifier(ex.typ)) in {PtrT, RefT, PointerT, CstringT, ProctypeT}:
++      it.typ = skipModifier(ex.typ)
++    else:
++      commonType(c, dest, ex, start, it.typ)
++    it.n = ex.n
+   else:
+     var ex = Item(n: it.n, typ: it.typ)
+     let start = dest.len
+diff --git a/src/nimony/typenav.nim b/src/nimony/typenav.nim
+index 4ec3397..0eb494e 100644
+--- a/src/nimony/typenav.nim
++++ b/src/nimony/typenav.nim
+@@ -367,6 +367,63 @@ proc typeofBranchBody(c: var TypeCache; br: Cursor; flags: set[GetTypeFlag]): Cu
+     br = last
+   result = getTypeImpl(c, br, flags)
+ 
++proc nilMark(t: Cursor): NimonyOther =
++  ## The nilability annotation of a ptr/ref/pointer/cstring type (`NilU`,
++  ## `NotnilU`, `UncheckedU`), or `NoSub` when it carries none.
++  result = NoSub
++  var e = t
++  case t.typeKind
++  of PtrT, RefT:
++    e = t.childCursor
++    skip e # base type
++  of CstringT, PointerT:
++    e = t.childCursor
++  else:
++    return
++  if e.hasMore and e.isTagLit and e.substructureKind in {NotnilU, NilU, UncheckedU}:
++    result = e.substructureKind
++
++proc nilableVariant(c: var TypeCache; t: Cursor): Cursor =
++  ## `t` with its `notnil` annotation replaced by `nil`.
++  var buf = createTokenBuf(8)
++  buf.addParLe t.typeKind, t.info
++  var n = sub(t)
++  if t.typeKind in {PtrT, RefT}:
++    buf.addSubtree n
++    skip n # base type
++  while n.hasMore:
++    if n.isTagLit and n.substructureKind == NotnilU:
++      skip n
++    else:
++      buf.addSubtree n
++      skip n
++  buf.addParPair NilX, t.info
++  buf.addParRi()
++  result = c.keepAlive(buf)
++
++proc joinBranchType(c: var TypeCache; acc: var Cursor; sawNil: var bool; brType: Cursor) =
++  ## Folds one branch's type into the if/case/try expression's type. Sem
++  ## types the expression by the destination (or, without one, by its first
++  ## value branch) but that type is not stored in the tree, so it has to be
++  ## recomputed from ALL branches here: a `nil` literal branch is not a type
++  ## on its own, and one nilable branch makes the whole expression nilable.
++  case brType.typeKind
++  of VoidT, AutoT: discard
++  of NiltT: sawNil = true
++  else:
++    if cursorIsNil(acc):
++      acc = brType
++    elif nilMark(brType) == NilU and nilMark(acc) == NotnilU:
++      acc = brType
++
++proc finishBranchType(c: var TypeCache; acc: Cursor; sawNil: bool): Cursor =
++  if cursorIsNil(acc):
++    result = if sawNil: c.builtins.nilType else: c.builtins.voidType
++  elif sawNil and nilMark(acc) == NotnilU:
++    result = nilableVariant(c, acc)
++  else:
++    result = acc
++
+ proc getTypeImpl(c: var TypeCache; n: Cursor; flags: set[GetTypeFlag]): Cursor =
+   result = c.builtins.autoType # to indicate error
+   case exprKind(n)
+@@ -398,7 +455,8 @@ proc getTypeImpl(c: var TypeCache; n: Cursor; flags: set[GetTypeFlag]): Cursor =
+         # void proc) still types void through the recursion.
+         var n = n
+         inc n # skip `if`
+-        result = c.builtins.voidType
++        var acc = default(Cursor)
++        var sawNil = false
+         while n.isTagLit:
+           let sub = n.substructureKind
+           if sub notin {ElifU, ElseU}: break
+@@ -406,18 +464,25 @@ proc getTypeImpl(c: var TypeCache; n: Cursor; flags: set[GetTypeFlag]): Cursor =
+           inc br # `elif` or `else`
+           if sub == ElifU:
+             skip br # condition
+-          let brType = typeofBranchBody(c, br, flags)
+-          if brType.typeKind != VoidT:
+-            result = brType
+-            break
++          joinBranchType c, acc, sawNil, typeofBranchBody(c, br, flags)
+           skip n
++        result = finishBranchType(c, acc, sawNil)
+       of CaseS:
+         var n = n
+         inc n # skip `case`
+         skip n # skip selector
+-        inc n # skip `of`
+-        skip n # skip set
+-        result = typeofBranchBody(c, n, flags)
++        var acc = default(Cursor)
++        var sawNil = false
++        while n.isTagLit:
++          let sub = n.substructureKind
++          if sub notin {OfU, ElifU, ElseU}: break
++          var br = n
++          inc br # `of`, `elif` or `else`
++          if sub in {OfU, ElifU}:
++            skip br # set or condition
++          joinBranchType c, acc, sawNil, typeofBranchBody(c, br, flags)
++          skip n
++        result = finishBranchType(c, acc, sawNil)
+       of TryS:
+         var n = n
+         inc n

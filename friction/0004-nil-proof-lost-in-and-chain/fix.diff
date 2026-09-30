@@ -1,0 +1,87 @@
+diff --git a/src/hexer/xelim.nim b/src/hexer/xelim.nim
+index d802f05..781284d 100644
+--- a/src/hexer/xelim.nim
++++ b/src/hexer/xelim.nim
+@@ -252,8 +252,23 @@ proc closeIfElse(c: var Context; dest: var TokenBuf) =
+     dest.addParRi() # else
+   dest.addParRi() # if/ite
+ 
++proc condSpineHasShortCircuit(n: Cursor): bool
++proc trShortCircuitViaCx(c: var Context; dest: var TokenBuf; n: var Cursor;
++                         tar: var Target; isAnd: bool)
++
++proc leftHasShortCircuit(c: Context; n: Cursor): bool =
++  ## Is the LEFT operand of this value-position `and`/`or` itself a
++  ## short-circuit spine? Then materialising it into a bool temp would hide its
++  ## facts from the prover (`(v != nil and p) and f(v)`).
++  if c.goal == LowerCasts: return false
++  var l = n
++  l = sub(l)
++  result = condSpineHasShortCircuit(l)
++
+ proc trOr(c: var Context; dest: var TokenBuf; n: var Cursor; tar: var Target) =
+-  if isComplex(n, c.goal):
++  if isComplex(n, c.goal) and leftHasShortCircuit(c, n):
++    trShortCircuitViaCx c, dest, n, tar, false
++  elif isComplex(n, c.goal):
+     # `x or y`  <=> `if x: true else: y` <=> `if x: tmp = true else: tmp = y`
+     let info = n.info
+     var tmp = declareTempBool(c, dest, info)
+@@ -283,7 +298,9 @@ proc trOr(c: var Context; dest: var TokenBuf; n: var Cursor; tar: var Target) =
+       trExpr c, dest, n, tar
+ 
+ proc trAnd(c: var Context; dest: var TokenBuf; n: var Cursor; tar: var Target) =
+-  if isComplex(n, c.goal):
++  if isComplex(n, c.goal) and leftHasShortCircuit(c, n):
++    trShortCircuitViaCx c, dest, n, tar, true
++  elif isComplex(n, c.goal):
+     # `x and y` <=> `if x: y else: false` <=> `if x: tmp = y else: tmp = false`
+     let info = n.info
+     var tmp = declareTempBool(c, dest, info)
+@@ -793,6 +810,46 @@ proc trCondJump(c: var Context; dest: var TokenBuf; n: var Cursor; tar: var Targ
+     if scoped:
+       dest.addParRi()
+ 
++proc trShortCircuitViaCx(c: var Context; dest: var TokenBuf; n: var Cursor;
++                         tar: var Target; isAnd: bool) =
++  ## A value-position `a and b` / `a or b` whose `a` is itself a short-circuit
++  ## spine. `a` is compiled against jump targets (like an `if` condition) rather
++  ## than materialised into a bool temp that the next diamond re-tests, so
++  ## the facts `a` establishes still hold where `b` is evaluated:
++  ##
++  ##   and:  (var tmp) (scope Cjmp(a)(Lf, false) tmp = b) (jmp Lend)
++  ##         (lab Lf) tmp = false (lab Lend)
++  ##   or:   (var tmp) (scope Cjmp(a)(Lf, true)  tmp = b) (jmp Lend)
++  ##         (lab Lf) tmp = true  (lab Lend)
++  let info = n.info
++  let tmp = declareTempBool(c, dest, info)
++  let shortLab = freshLabel(c)
++  let endLab = freshLabel(c)
++  n.into:
++    let lhs = n
++    skip n
++    var rhs = createTokenBuf(16)
++    hoistDeclsFromExprX(c.typeCache, dest, rhs, n, markNoinit = c.goal == TowardsFinalIr)
++    var rhsCursor = beginRead(rhs)
++    var l = lhs
++    dest.addParLe(ScopeS, info)
++    c.typeCache.openScope()
++    # and: jump to shortLab when `a` is false; or: when `a` is true
++    trExprToLabel c, dest, l, shortLab, not isAnd, false
++    trExprInto c, dest, rhsCursor, tmp
++    c.typeCache.closeScope()
++    dest.addParRi()
++    addJmp dest, endLab, info
++    addLab dest, shortLab, info
++    copyIntoKind dest, AsgnS, info:
++      dest.addSymUse tmp, info
++      if isAnd:
++        copyIntoKind dest, FalseX, info: discard
++      else:
++        copyIntoKind dest, TrueX, info: discard
++    addLab dest, endLab, info
++  tar.t.addSymUse tmp, info
++
+ proc ifNeedsCondJumps(c: Context; n: Cursor): bool =
+   ## Does any arm of this `if` carry a short-circuit condition that would
+   ## otherwise materialise a bool? One is enough — the whole statement then

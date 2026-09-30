@@ -1,0 +1,110 @@
+diff --git a/src/hexer/coro_transform.nim b/src/hexer/coro_transform.nim
+index 037a88b..7dd349c 100644
+--- a/src/hexer/coro_transform.nim
++++ b/src/hexer/coro_transform.nim
+@@ -1565,7 +1565,7 @@ proc trGoto*(c: var Context; dest: var TokenBuf; n: var Cursor) =
+             ConverterS, MethodS, MacroS, TemplateS, TypeS,
+             BlockS, EmitS, IfS, WhenS,
+             BreakS, ContinueS, ForS, WhileS, CoroforS,
+-            RetS, YldS, PragmasS, PragmaxS, InclS, ExclS,
++            RetS, YldS, PragmasS, InclS, ExclS,
+             IncludeS, ImportS, ImportasS, FromimportS,
+             ImportexceptS, ExportS, ExportexceptS, CommentS,
+             DiscardS, UnpackdeclS, AssumeS,
+@@ -1577,6 +1577,31 @@ proc trGoto*(c: var Context; dest: var TokenBuf; n: var Cursor) =
+             while n.hasMore:
+               trGoto c, dest, n
+           dest.addParRi()
++        of PragmaxS:
++          # `(pragmax (pragmas ...) body)` has exactly ONE body slot, and
++          # later passes (`constparams.trPragmaBlock`, `xelim`) rely on that.
++          # The generic arm above would let the `StmtsS` flattening below
++          # splice the body's statements straight into the `pragmax`.
++          if containsSuspensionPoint(c, n):
++            # A state label has to live at the top level of the body, so the
++            # wrapper cannot survive. A `cast` pragma only matters to sema
++            # (`constparams` drops it anyway): lay its body out flat.
++            let pragmaxStart = n
++            var p = sub(n)                 # (pragmas ...)
++            var pk = sub(p)
++            if pk.pragmaKind != CastP:
++              bug "suspension point inside a pragma block: " & toString(pragmaxStart, false)
++            skip p
++            while p.hasMore:
++              trGoto c, dest, p
++            n = pragmaxStart; skip n
++          else:
++            dest.addParLe(n.cursorTagId, n.info)
++            n.into:
++              dest.takeTree n              # (pragmas ...)
++              while n.hasMore:
++                trGotoScoped c, dest, n    # the body: one `(stmts ...)`
++            dest.addParRi()
+         of CaseS:
+           # `finalir` keeps `case` as a construct ("Format as existing"), so
+           # unlike `nj.nim` — which lowered every branch to an `ite` chain —
+diff --git a/tests/nimony/cps/tpassive_pragma_block.nim b/tests/nimony/cps/tpassive_pragma_block.nim
+new file mode 100644
+index 0000000..249f975
+--- /dev/null
++++ b/tests/nimony/cps/tpassive_pragma_block.nim
+@@ -0,0 +1,48 @@
++import std/syncio
++
++proc inner(): int {.passive.} =
++  suspend()
++  result = 10
++
++iterator items2(s: seq[int]): int =
++  {.cast(noSideEffect).}:
++    for x in s: yield x
++
++proc countFor(s: seq[int]): int {.passive.} =
++  result = 0
++  {.cast(noSideEffect).}:
++    for x in s: inc result
++
++proc countIter(s: seq[int]): int {.passive.} =
++  result = 0
++  for x in items2(s): inc result
++
++proc countWhile(s: seq[int]): int {.passive.} =
++  result = 0
++  {.cast(noSideEffect).}:
++    var i = 0
++    while i < s.len:
++      inc result
++      inc i
++
++proc twoStmts(): int {.passive.} =
++  result = 0
++  {.cast(uncheckedAssign).}:
++    inc result
++    inc result
++
++proc suspendInside(): int {.passive.} =
++  result = 0
++  {.cast(noSideEffect).}:
++    inc result
++    result += inner()
++    inc result
++
++proc main() {.passive.} =
++  echo countFor(@[1, 2, 3])
++  echo countIter(@[1, 2, 3, 4])
++  echo countWhile(@[1, 2])
++  echo twoStmts()
++  echo suspendInside()
++
++main()
+diff --git a/tests/nimony/cps/tpassive_pragma_block.output b/tests/nimony/cps/tpassive_pragma_block.output
+new file mode 100644
+index 0000000..6c4d503
+--- /dev/null
++++ b/tests/nimony/cps/tpassive_pragma_block.output
+@@ -0,0 +1,5 @@
++3
++4
++2
++2
++12

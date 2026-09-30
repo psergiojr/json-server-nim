@@ -1,0 +1,40 @@
+diff --git a/src/nimony/contracts_fir.nim b/src/nimony/contracts_fir.nim
+index 3058e1f..8e3beb9 100644
+--- a/src/nimony/contracts_fir.nim
++++ b/src/nimony/contracts_fir.nim
+@@ -2591,6 +2591,15 @@ proc isConvertedNil(n: Cursor): bool =
+     skip n # the target type
+   result = n.exprKind == NilX
+ 
++proc renderForNilMsg(c: var FirContext; n: Cursor): string =
++  ## A compiler temporary (`xelim`'s `` `x.N ``) has no source spelling; its
++  ## basename renders as a lone `` `x ``. Show what it was bound to instead.
++  result = asNimCode(n)
++  if n.kind == Symbol and result.len > 0 and result[0] == '`':
++    let x = getLocalInfo(c.typeCache, n.symId)
++    if not cursorIsNil(x.val) and x.val.kind != DotToken:
++      result = asNimCode(x.val)
++
+ proc wantNotNil(c: var FirContext; n: Cursor) =
+   case n.exprKind
+   of NilX:
+@@ -2627,7 +2636,7 @@ proc wantNotNil(c: var FirContext; n: Cursor) =
+         if implies(c.facts, fact):
+           discard "fine, did prove access correct"
+         else:
+-          buildErr c, n.info, "cannot prove expression is not nil: " & asNimCode(n)
++          buildErr c, n.info, "cannot prove expression is not nil: " & renderForNilMsg(c, n)
+ 
+ proc checkNilMatch(c: var FirContext; n: Cursor; expected: Cursor) =
+   if markedAs(expected, NotnilU):
+@@ -4552,7 +4561,9 @@ proc traverseLocal(c: var FirContext; n: var Cursor; call: var CallContext) =
+   let isForeignStorage = hasPragma(n, ImportcP) or hasPragma(n, ImportcppP)
+   let isInline = hasPragma(n, InlineP)
+   skip n # pragmas
+-  c.typeCache.registerLocal(name, kind, n)
++  var valCursor = n
++  skip valCursor # type; now at the initializer (or `.`)
++  c.typeCache.registerLocal(name, kind, n, valCursor)
+   let localType = n
+   skip n # type
+   let initStart = n
