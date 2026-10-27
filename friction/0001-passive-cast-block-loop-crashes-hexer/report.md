@@ -3,10 +3,10 @@ id: 0001
 title: A pragma block (`{.cast(...).}:`, `{.keepOverflowFlag.}:`) with two or more statements in a `.passive` proc crashes hexer with "into: body did not consume all children"
 date: 2026-09-23
 component: nimony
-version: b2c2df7 (2026-09-23); first seen at 0e1761f
+version: nimony @ b2c2df77bf8f08f0c17ce4ed678d2495dc3f4f62 (2026-09-23); first seen at 0e1761f
 severity: crash
-status: open (cause verified, fix tested)
-upstream:
+status: fixed
+upstream: #2569 (fixed independently on 2026-09-26; never filed)
 ---
 
 ## What I was doing
@@ -168,3 +168,23 @@ Beyond the patch, the original points still apply:
    routine it was lowering. `into:`'s assertion knows only the cursor; the
    pass that calls it knows the proc. A `bug` with that info would have turned
    an hour of bisection into a single line.
+
+## Re-check at 358b9bc (2026-10-27)
+
+**Fixed upstream, independently, three days after this was written:**
+#2569 (668eddd, 2026-09-26, "passive calls from regular procs run to
+completion") gives `PragmaxS` its own arm in `coro_transform.trGoto`. It is
+the same design as `fix.diff`: a body without a suspension point keeps its
+wrapper and goes through `trGotoScoped`, and a suspending body in a `cast`
+block loses the wrapper and is laid out flat. This report was never filed.
+
+All three repros compile at 358b9bc. The variant table, run again in one
+program (`for` loop, iterator, `while`, two statements, a suspending call in a
+`cast` block, `keepOverflowFlag` with two statements), prints the expected
+`3 4 2 2 12 2`.
+
+The one place #2569 differs from `fix.diff`: a suspension point inside a
+non-`cast` pragma block. `fix.diff` reported a `bug` there. #2569 keeps the
+wrapper, the program compiles, and it hangs at run time. That is friction/0006.
+
+`fix.diff` no longer applies and is kept as a record.

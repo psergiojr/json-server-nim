@@ -1,3 +1,7 @@
+# A value-position `and`/`or` whose left operand is itself a short-circuit
+# keeps the facts that operand established: `v != nil and p and f(v)` is
+# accepted, and every form still evaluates left to right, short-circuiting
+# (truth tables, and the call count of `mix`).
 import std/syncio
 type
   Obj = ref object
@@ -6,10 +10,10 @@ type
 
 var calls = 0
 proc f(v: Obj): bool =
-  inc calls
+  {.cast(assumeSync).}: inc calls
   v.k > 0
 proc t(x: bool): bool =
-  inc calls
+  {.cast(assumeSync).}: inc calls
   x
 
 proc b(v: Maybe): bool = v != nil and true and f(v)

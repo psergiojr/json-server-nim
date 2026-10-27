@@ -1,8 +1,8 @@
 diff --git a/src/nimony/contracts_fir.nim b/src/nimony/contracts_fir.nim
-index 3058e1f..8e3beb9 100644
+index 0d48511..4ae0699 100644
 --- a/src/nimony/contracts_fir.nim
 +++ b/src/nimony/contracts_fir.nim
-@@ -2591,6 +2591,15 @@ proc isConvertedNil(n: Cursor): bool =
+@@ -2802,6 +2802,15 @@ proc isConvertedNil(n: Cursor): bool =
      skip n # the target type
    result = n.exprKind == NilX
  
@@ -18,7 +18,7 @@ index 3058e1f..8e3beb9 100644
  proc wantNotNil(c: var FirContext; n: Cursor) =
    case n.exprKind
    of NilX:
-@@ -2627,7 +2636,7 @@ proc wantNotNil(c: var FirContext; n: Cursor) =
+@@ -2838,7 +2847,7 @@ proc wantNotNil(c: var FirContext; n: Cursor) =
          if implies(c.facts, fact):
            discard "fine, did prove access correct"
          else:
@@ -27,7 +27,7 @@ index 3058e1f..8e3beb9 100644
  
  proc checkNilMatch(c: var FirContext; n: Cursor; expected: Cursor) =
    if markedAs(expected, NotnilU):
-@@ -4552,7 +4561,9 @@ proc traverseLocal(c: var FirContext; n: var Cursor; call: var CallContext) =
+@@ -5098,7 +5107,9 @@ proc traverseLocal(c: var FirContext; n: var Cursor; call: var CallContext) =
    let isForeignStorage = hasPragma(n, ImportcP) or hasPragma(n, ImportcppP)
    let isInline = hasPragma(n, InlineP)
    skip n # pragmas

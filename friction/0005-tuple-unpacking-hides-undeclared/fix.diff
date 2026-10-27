@@ -1,0 +1,15 @@
+diff --git a/src/nimony/semdecls.nim b/src/nimony/semdecls.nim
+index d41249d..f33293e 100644
+--- a/src/nimony/semdecls.nim
++++ b/src/nimony/semdecls.nim
+@@ -1769,7 +1769,9 @@ proc semUnpackDecl(c: var SemContext; dest: var TokenBuf; it: var Item) =
+     it.n = tup.n
+     let tupleType = skipModifier(tup.typ)
+     if tupleType.typeKind != TupleT:
+-      c.buildErr dest, tupInfo, "expected tuple for tuple unpacking"
++      # `tupBuf` as the origin: when the value already failed (an undeclared
++      # identifier), `buildErr` reports that error instead of this one.
++      c.buildErr dest, tupInfo, "expected tuple for tuple unpacking", cursorAt(tupBuf, 0)
+       while it.n.hasMore: skip it.n
+     else:
+       if it.n.substructureKind != UnpacktupU:

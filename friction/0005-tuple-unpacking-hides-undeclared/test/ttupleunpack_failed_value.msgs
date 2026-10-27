@@ -1,0 +1,2 @@
+tests/nimony/errmsgs/ttupleunpack_failed_value.nim(6, 16) Error: undeclared identifier: 'undeclaredThing'
+tests/nimony/errmsgs/ttupleunpack_failed_value.nim(8, 14) Error: expected tuple for tuple unpacking

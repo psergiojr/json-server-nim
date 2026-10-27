@@ -3,10 +3,10 @@ id: 0003
 title: "cannot call a routine marked as .raises" is reported at `???` for a call without arguments
 date: 2026-09-23
 component: nimony
-version: b2c2df7 (2026-09-23); first seen at 0e1761f
+version: nimony @ b2c2df77bf8f08f0c17ce4ed678d2495dc3f4f62 (2026-09-23); first seen at 0e1761f
 severity: bad-message
-status: open (fix tested)
-upstream:
+status: fixed
+upstream: #2695 (fixed independently on 2026-10-16; never filed)
 ---
 
 ## What I was doing
@@ -77,3 +77,18 @@ Both calls are now located at the call itself. The one existing golden with
 this message (`tests/nimony/exceptions/traise_through_finally.msgs`, 13:14)
 is byte-identical. `hastur tests/nimony/{exceptions,errmsgs,notnil,contracts}`
 all SUCCESS. `repro.nim` is a new golden candidate for `tests/nimony/errmsgs`.
+
+## Re-check at 358b9bc (2026-10-27)
+
+**Fixed upstream, independently:** #2695 (159960c, 2026-10-16,
+"Exceptions: only `ErrorCode` and `ref` objects are raised, and raises are
+checked at calls") rewrote the raises check in `derefs` and passes `trCall`'s
+`info` into `trCallArgs`, which is what `fix.diff` did. `repro.nim` now prints
+exactly the output given under "Proposed fix" above:
+
+```
+repro.nim(4, 21) Error: cannot call a routine marked as `.raises` outside of a `try`..`except` block
+repro.nim(5, 20) Error: cannot call a routine marked as `.raises` outside of a `try`..`except` block
+```
+
+Never filed. `fix.diff` no longer applies and is kept as a record.

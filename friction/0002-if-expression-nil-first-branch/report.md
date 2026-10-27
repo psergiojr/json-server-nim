@@ -3,10 +3,10 @@ id: 0002
 title: An if-expression is typed from its first branch, so `if b: nil else: x` crashes hexer and `if b: X() else: nilableX` fails the nil proof
 date: 2026-09-23
 component: nimony
-version: b2c2df7 (2026-09-23); first seen at 0e1761f
+version: nimony @ b2c2df77bf8f08f0c17ce4ed678d2495dc3f4f62 (2026-09-23); first seen at 0e1761f
 severity: crash
-status: open (cause verified, partial fix tested)
-upstream:
+status: fixed
+upstream: #2605 (reported independently on 2026-10-02, fixed by #2611; never filed). Remaining forms: 0007
 ---
 
 ## What I was doing
@@ -169,3 +169,33 @@ Still open with the patch:
 - An untyped `let x = if b: nil else: o` infers `Obj notnil`. It now fails
   cleanly, but the message names xelim's temp (`` `x ``): the same message
   defect as the one noted in 0004.
+
+## Re-check at 358b9bc (2026-10-27)
+
+**The crash was reported by someone else and fixed upstream.** #2605
+(2026-10-02, "bug in isTrivial computation", `var q: nil X = if 10 > 0: nil
+else: X(data: 10)`) is this report's `repro.nim`. Araq fixed it with #2611
+(cfc51a7, 2026-10-03). The fix is the "robust version" proposed above: sema
+now emits a `nil` resolved against a pointer type as a typed `(nil T)`, and
+`typenav` returns that `T`. This report was never filed, so 0002 is `fixed`
+and does not count as filed.
+
+At 358b9bc, of the variants listed above:
+
+| variant | 358b9bc |
+|---|---|
+| `repro.nim` (`if b: nil else: o`, typed destination) | compiles |
+| `repro_nilable_else.nim` | compiles |
+| `case`, `nil` first / nilable `else` | compiles |
+| `let x: nil Obj = if b: nil else: o` | compiles |
+| `if b: nil else: nil` | compiles |
+| `if b: Obj(k: 1) else: nil` | compiles |
+| `repro_swapped.nim`: `if b: o else: nil`, `o: Obj` (also as `let x: nil Obj`, or a global) | `expected non-nil value` |
+| `repro_no_expected_type.nim`: `take(if b: nil else: o)` | `wanted: (nilt)` |
+| a proc body's trailing `if b: nil else: o` | `wanted: (nilt)` |
+| `let x = if b: nil else: o` | `wanted: (nilt)` |
+
+The remaining forms are friction/0007, with a fix rebased from `fix.diff`.
+`upstream.md` (the issue and PR text for this report) was deleted with this
+re-check: the crash it led with is fixed, and 0007 has its own text.
+`fix.diff` no longer applies and is kept as a record.

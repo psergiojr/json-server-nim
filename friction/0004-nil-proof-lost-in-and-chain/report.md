@@ -3,9 +3,9 @@ id: 0004
 title: The not-nil proof is lost in a chained `and`: `v != nil and true and f(v)` is rejected
 date: 2026-09-23
 component: nimony
-version: b2c2df7 (2026-09-23); first seen at 0e1761f
+version: nimony 0.6.3 @ 358b9bce4dd855453f57a80a0c499b0b2e27d7ee (re-checked 2026-10-27); first seen at 0e1761f, written against b2c2df7
 severity: wrong-behavior
-status: open (cause verified, fix tested)
+status: open
 upstream:
 ---
 
@@ -142,3 +142,35 @@ compiles the left spine with the same jump machinery `trIfFlat` uses
 
 Not covered: a nested short-circuit inside another expression form, e.g.
 `f(a and b)`, is still materialised through a temp.
+
+## Re-check at 358b9bc (2026-10-27)
+
+Still reproduces: `repro.nim` gives `repro.nim(9, 50) Error: cannot prove
+expression is not nil: v`, and `repro_template_call.nim` still names the temp
+(`` `x ``). The nearest upstream items are #1984 and #2054 ("refine
+nil-tracking through `and`/`or` short-circuit guards", closed 2026-06-30, before
+this report). They taught the prover's `analyseCondition` about `and`/`or`,
+which, as described above, a value-position `and` never reaches. Nothing open
+upstream matches.
+
+Both diffs apply unchanged to 358b9bc and were re-tested there, in a scratch
+worktree with its own nimcache:
+
+- `fix.diff`: `repro.nim` compiles. The semantics test, now
+  `test/tnil_and_chain.nim` (for `tests/nimony/notnil/`), prints the expected
+  truth tables and call count (18, counted by hand). It needed one change for
+  358b9bc: the counter increments are wrapped in `{.cast(assumeSync).}:`
+  because of the newer rule against unsynchronized global access, whose
+  message names that fix. On stock it fails with two `cannot prove expression
+  is not nil: v`. `test_semantics.nim` was replaced by it.
+- `fix_message.diff` (regenerated against 358b9bc, same change):
+  `repro_template_call.nim` reports `cannot prove expression is not nil:
+  item[key]`. Golden test `test/tnotnil_temp_name.{nim,msgs}` for
+  `tests/nimony/errmsgs/`.
+- `hastur test` with `fix.diff` and `fix_message.diff` applied passes on
+  `tests/nimony/{notnil, basics, basicarith, errmsgs, stdlib, cps, passive,
+  exceptions, misc, casestmt, iter, closures, object, borrows, templates,
+  sysbasics, strings, async}`, `tests/contracts` and `tests/controlflow`.
+
+These are two upstream changes: the xelim fix (issue + PR), and the message
+fix as a second, independent PR.

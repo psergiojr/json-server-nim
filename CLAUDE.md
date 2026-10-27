@@ -4,6 +4,9 @@ A reimplementation of [typicode/json-server](https://github.com/typicode/json-se
 v1 (1.0.0-beta.15) on **nimony**, run the same way as `~/lab/summer`: the server is
 the instrument, **the friction log is the product.**
 
+Follows `~/lab/summer-playbook/PLAYBOOK.md`; this file states the deltas.
+Playbook: summer-playbook@2fd3d35
+
 ## Log friction. Do not silently work around it.
 
 When you hit a compiler/tooling/library crash or hang, a vague or misplaced error
@@ -11,7 +14,8 @@ message, an API that only worked on the second try, docs that contradict behavio
 an undocumented expectation you had to infer, or a fight with the memory model:
 append one line to `friction/INBOX.md` **before continuing**, then work around it.
 Tag `[agent]` for friction specific to working without an IDE. Promote lines to
-reports with `friction/_template` (see `~/lab/summer/friction/README.md`).
+reports with `~/lab/summer-playbook/friction/_template` (rules in
+`~/lab/summer-playbook/friction/README.md`).
 
 ## Toolchain
 

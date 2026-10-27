@@ -1,0 +1,334 @@
+diff --git a/src/hexer/coro_transform.nim b/src/hexer/coro_transform.nim
+index cdcbfe6..6e37bcd 100644
+--- a/src/hexer/coro_transform.nim
++++ b/src/hexer/coro_transform.nim
+@@ -1678,13 +1678,40 @@ proc trGoto*(c: var Context; dest: var TokenBuf; n: var Cursor) =
+           # would flatten into several statements. A body that suspends must
+           # be flattened all the same — its state labels belong at the top
+           # level — and only a `cast` block can give up its wrapper for that,
+-          # since it means nothing at run time.
++          # since it means nothing at run time. Any other pragma block
++          # (`keepOverflowFlag`) still matters to `constparams`, so its
++          # flattened body is cut at each state label and every piece gets
++          # the wrapper back.
+           let pragmas = n.childCursor
+-          if containsSuspensionPoint(c, n) and
+-              pragmas.childCursor.pragmaKind == CastP:
++          let suspends = containsSuspensionPoint(c, n)
++          if suspends and pragmas.childCursor.pragmaKind == CastP:
+             n.into:
+               skip n                                # pragmas
+               while n.hasMore: trGoto c, dest, n
++          elif suspends:
++            let info = n.info
++            var body = createTokenBuf(64)
++            n.into:
++              skip n                                # pragmas
++              while n.hasMore: trGoto c, body, n
++            var b = beginRead(body)
++            var wrapped = false
++            while b.hasMore:
++              if b.stmtKind == LabS and b.childCursor.kind == IntLit:
++                if wrapped:
++                  dest.addParRi()                   # stmts
++                  dest.addParRi()                   # pragmax
++                  wrapped = false
++              elif not wrapped:
++                dest.addParLe(PragmaxS, info)
++                dest.addSubtree pragmas
++                dest.addParLe(StmtsS, info)
++                wrapped = true
++              dest.takeTree b
++            if wrapped:
++              dest.addParRi()
++              dest.addParRi()
++            endRead b
+           else:
+             dest.addParLe(n.cursorTagId, n.info)
+             n.into:
+diff --git a/src/hexer/xelim.nim b/src/hexer/xelim.nim
+index 6d5e649..5c1d70c 100644
+--- a/src/hexer/xelim.nim
++++ b/src/hexer/xelim.nim
+@@ -265,8 +265,23 @@ proc closeIfElse(c: var Context; dest: var TokenBuf) =
+     dest.addParRi() # else
+   dest.addParRi() # if/ite
+ 
++proc condSpineHasShortCircuit(n: Cursor): bool
++proc trShortCircuitViaCx(c: var Context; dest: var TokenBuf; n: var Cursor;
++                         tar: var Target; isAnd: bool)
++
++proc leftHasShortCircuit(c: Context; n: Cursor): bool =
++  ## Is the LEFT operand of this value-position `and`/`or` itself a
++  ## short-circuit spine? Then materialising it into a bool temp would hide its
++  ## facts from the prover (`(v != nil and p) and f(v)`).
++  if c.goal == LowerCasts: return false
++  var l = n
++  l = sub(l)
++  result = condSpineHasShortCircuit(l)
++
+ proc trOr(c: var Context; dest: var TokenBuf; n: var Cursor; tar: var Target) =
+-  if isComplex(n, c.goal):
++  if isComplex(n, c.goal) and leftHasShortCircuit(c, n):
++    trShortCircuitViaCx c, dest, n, tar, false
++  elif isComplex(n, c.goal):
+     # `x or y`  <=> `if x: true else: y` <=> `if x: tmp = true else: tmp = y`
+     let info = n.info
+     var tmp = declareTempBool(c, dest, info)
+@@ -296,7 +311,9 @@ proc trOr(c: var Context; dest: var TokenBuf; n: var Cursor; tar: var Target) =
+       trExpr c, dest, n, tar
+ 
+ proc trAnd(c: var Context; dest: var TokenBuf; n: var Cursor; tar: var Target) =
+-  if isComplex(n, c.goal):
++  if isComplex(n, c.goal) and leftHasShortCircuit(c, n):
++    trShortCircuitViaCx c, dest, n, tar, true
++  elif isComplex(n, c.goal):
+     # `x and y` <=> `if x: y else: false` <=> `if x: tmp = y else: tmp = false`
+     let info = n.info
+     var tmp = declareTempBool(c, dest, info)
+@@ -806,6 +823,46 @@ proc trCondJump(c: var Context; dest: var TokenBuf; n: var Cursor; tar: var Targ
+     if scoped:
+       dest.addParRi()
+ 
++proc trShortCircuitViaCx(c: var Context; dest: var TokenBuf; n: var Cursor;
++                         tar: var Target; isAnd: bool) =
++  ## A value-position `a and b` / `a or b` whose `a` is itself a short-circuit
++  ## spine. `a` is compiled against jump targets (like an `if` condition) rather
++  ## than materialised into a bool temp that the next diamond re-tests, so
++  ## the facts `a` establishes still hold where `b` is evaluated:
++  ##
++  ##   and:  (var tmp) (scope Cjmp(a)(Lf, false) tmp = b) (jmp Lend)
++  ##         (lab Lf) tmp = false (lab Lend)
++  ##   or:   (var tmp) (scope Cjmp(a)(Lf, true)  tmp = b) (jmp Lend)
++  ##         (lab Lf) tmp = true  (lab Lend)
++  let info = n.info
++  let tmp = declareTempBool(c, dest, info)
++  let shortLab = freshLabel(c)
++  let endLab = freshLabel(c)
++  n.into:
++    let lhs = n
++    skip n
++    var rhs = createTokenBuf(16)
++    hoistDeclsFromExprX(c.typeCache, dest, rhs, n, markNoinit = c.goal == TowardsFinalIr)
++    var rhsCursor = beginRead(rhs)
++    var l = lhs
++    dest.addParLe(ScopeS, info)
++    c.typeCache.openScope()
++    # and: jump to shortLab when `a` is false; or: when `a` is true
++    trExprToLabel c, dest, l, shortLab, not isAnd, false
++    trExprInto c, dest, rhsCursor, tmp
++    c.typeCache.closeScope()
++    dest.addParRi()
++    addJmp dest, endLab, info
++    addLab dest, shortLab, info
++    copyIntoKind dest, AsgnS, info:
++      dest.addSymUse tmp, info
++      if isAnd:
++        copyIntoKind dest, FalseX, info: discard
++      else:
++        copyIntoKind dest, TrueX, info: discard
++    addLab dest, endLab, info
++  tar.t.addSymUse tmp, info
++
+ proc ifNeedsCondJumps(c: Context; n: Cursor): bool =
+   ## Does any arm of this `if` carry a short-circuit condition that would
+   ## otherwise materialise a bool? One is enough — the whole statement then
+diff --git a/src/nimony/contracts_fir.nim b/src/nimony/contracts_fir.nim
+index 0d48511..4ae0699 100644
+--- a/src/nimony/contracts_fir.nim
++++ b/src/nimony/contracts_fir.nim
+@@ -2802,6 +2802,15 @@ proc isConvertedNil(n: Cursor): bool =
+     skip n # the target type
+   result = n.exprKind == NilX
+ 
++proc renderForNilMsg(c: var FirContext; n: Cursor): string =
++  ## A compiler temporary (`xelim`'s `` `x.N ``) has no source spelling; its
++  ## basename renders as a lone `` `x ``. Show what it was bound to instead.
++  result = asNimCode(n)
++  if n.kind == Symbol and result.len > 0 and result[0] == '`':
++    let x = getLocalInfo(c.typeCache, n.symId)
++    if not cursorIsNil(x.val) and x.val.kind != DotToken:
++      result = asNimCode(x.val)
++
+ proc wantNotNil(c: var FirContext; n: Cursor) =
+   case n.exprKind
+   of NilX:
+@@ -2838,7 +2847,7 @@ proc wantNotNil(c: var FirContext; n: Cursor) =
+         if implies(c.facts, fact):
+           discard "fine, did prove access correct"
+         else:
+-          buildErr c, n.info, "cannot prove expression is not nil: " & asNimCode(n)
++          buildErr c, n.info, "cannot prove expression is not nil: " & renderForNilMsg(c, n)
+ 
+ proc checkNilMatch(c: var FirContext; n: Cursor; expected: Cursor) =
+   if markedAs(expected, NotnilU):
+@@ -5098,7 +5107,9 @@ proc traverseLocal(c: var FirContext; n: var Cursor; call: var CallContext) =
+   let isForeignStorage = hasPragma(n, ImportcP) or hasPragma(n, ImportcppP)
+   let isInline = hasPragma(n, InlineP)
+   skip n # pragmas
+-  c.typeCache.registerLocal(name, kind, n)
++  var valCursor = n
++  skip valCursor # type; now at the initializer (or `.`)
++  c.typeCache.registerLocal(name, kind, n, valCursor)
+   let localType = n
+   skip n # type
+   let initStart = n
+diff --git a/src/nimony/sem.nim b/src/nimony/sem.nim
+index 62c5e82..f74abf2 100644
+--- a/src/nimony/sem.nim
++++ b/src/nimony/sem.nim
+@@ -2359,6 +2359,19 @@ proc semStmtBranch(c: var SemContext; dest: var TokenBuf; it: var Item; isNewSco
+   of VoidT:
+     # performs discard check:
+     semStmt c, dest, it.n, isNewScope
++  of NiltT:
++    # An earlier branch was the `nil` literal, which does not determine a
++    # type on its own: let this branch pick it (`if b: nil else: someRef`),
++    # provided it is something `nil` converts to.
++    var ex = Item(n: it.n, typ: c.types.autoType)
++    let start = dest.len
++    semExpr c, dest, ex
++    if classifyType(c, ex.typ) notin {NiltT, AutoT} and
++        classifyType(c, skipModifier(ex.typ)) in {PtrT, RefT, PointerT, CstringT, ProctypeT}:
++      it.typ = skipModifier(ex.typ)
++    else:
++      commonType(c, dest, ex, start, it.typ)
++    it.n = ex.n
+   else:
+     var ex = Item(n: it.n, typ: it.typ)
+     let start = dest.len
+diff --git a/src/nimony/semdecls.nim b/src/nimony/semdecls.nim
+index d41249d..f33293e 100644
+--- a/src/nimony/semdecls.nim
++++ b/src/nimony/semdecls.nim
+@@ -1769,7 +1769,9 @@ proc semUnpackDecl(c: var SemContext; dest: var TokenBuf; it: var Item) =
+     it.n = tup.n
+     let tupleType = skipModifier(tup.typ)
+     if tupleType.typeKind != TupleT:
+-      c.buildErr dest, tupInfo, "expected tuple for tuple unpacking"
++      # `tupBuf` as the origin: when the value already failed (an undeclared
++      # identifier), `buildErr` reports that error instead of this one.
++      c.buildErr dest, tupInfo, "expected tuple for tuple unpacking", cursorAt(tupBuf, 0)
+       while it.n.hasMore: skip it.n
+     else:
+       if it.n.substructureKind != UnpacktupU:
+diff --git a/src/nimony/typenav.nim b/src/nimony/typenav.nim
+index 1a35ddb..8e5cbcc 100644
+--- a/src/nimony/typenav.nim
++++ b/src/nimony/typenav.nim
+@@ -400,6 +400,64 @@ proc typeofBranchBody(c: var TypeCache; br: Cursor; flags: set[GetTypeFlag]): Cu
+     br = last
+   result = getTypeImpl(c, br, flags)
+ 
++proc nilMark(t: Cursor): NimonyOther =
++  ## The nilability annotation of a ptr/ref/pointer/cstring type (`NilU`,
++  ## `NotnilU`, `UncheckedU`), or `NoSub` when it carries none.
++  result = NoSub
++  var e = t
++  case t.typeKind
++  of PtrT, RefT:
++    e = t.childCursor
++    skip e # base type
++  of CstringT, PointerT:
++    e = t.childCursor
++  else:
++    return
++  if e.hasMore and e.isTagLit and e.substructureKind in {NotnilU, NilU, UncheckedU}:
++    result = e.substructureKind
++
++proc nilableVariant(c: var TypeCache; t: Cursor): Cursor =
++  ## `t` with its `notnil` annotation replaced by `nil`.
++  var buf = createTokenBuf(8)
++  buf.addParLe t.typeKind, t.info
++  var n = sub(t)
++  if t.typeKind in {PtrT, RefT}:
++    buf.addSubtree n
++    skip n # base type
++  while n.hasMore:
++    if n.isTagLit and n.substructureKind == NotnilU:
++      skip n
++    else:
++      buf.addSubtree n
++      skip n
++  buf.addParPair NilX, t.info
++  buf.addParRi()
++  result = c.keepAlive(buf)
++
++proc joinBranchType(c: var TypeCache; acc: var Cursor; sawNil: var bool; brType: Cursor) =
++  ## Folds one branch's type into the if/case expression's type. Sem types
++  ## the expression by the destination (or, without one, by its first value
++  ## branch) but that type is not stored in the tree, so it has to be
++  ## recomputed from ALL branches here: one nilable branch (a `(nil T)` since
++  ## #2605) makes the whole expression nilable, and a bare `nil`, which has no
++  ## destination to take a type from, is not a type on its own.
++  case brType.typeKind
++  of VoidT: discard
++  of NiltT: sawNil = true
++  else:
++    if cursorIsNil(acc):
++      acc = brType
++    elif nilMark(brType) == NilU and nilMark(acc) == NotnilU:
++      acc = brType
++
++proc finishBranchType(c: var TypeCache; acc: Cursor; sawNil: bool): Cursor =
++  if cursorIsNil(acc):
++    result = if sawNil: c.builtins.nilType else: c.builtins.voidType
++  elif sawNil and nilMark(acc) == NotnilU:
++    result = nilableVariant(c, acc)
++  else:
++    result = acc
++
+ proc getTypeImpl(c: var TypeCache; n: Cursor; flags: set[GetTypeFlag]): Cursor =
+   result = c.builtins.autoType # to indicate error
+   case exprKind(n)
+@@ -431,7 +489,8 @@ proc getTypeImpl(c: var TypeCache; n: Cursor; flags: set[GetTypeFlag]): Cursor =
+         # void proc) still types void through the recursion.
+         var n = n
+         inc n # skip `if`
+-        result = c.builtins.voidType
++        var acc = default(Cursor)
++        var sawNil = false
+         while n.isTagLit:
+           let sub = n.substructureKind
+           if sub notin {ElifU, ElseU}: break
+@@ -439,30 +498,27 @@ proc getTypeImpl(c: var TypeCache; n: Cursor; flags: set[GetTypeFlag]): Cursor =
+           inc br # `elif` or `else`
+           if sub == ElifU:
+             skip br # condition
+-          let brType = typeofBranchBody(c, br, flags)
+-          if brType.typeKind != VoidT:
+-            result = brType
+-            break
++          joinBranchType c, acc, sawNil, typeofBranchBody(c, br, flags)
+           skip n
++        result = finishBranchType(c, acc, sawNil)
+       of CaseS:
+         # Like `if`: the first non-void branch decides, a leading branch that
+         # ends in `return` must not type the whole `case` as void (#2612).
+         var n = n
+         inc n # skip `case`
+         skip n # skip selector
+-        result = c.builtins.voidType
++        var acc = default(Cursor)
++        var sawNil = false
+         while n.isTagLit:
+           let sub = n.substructureKind
+-          if sub notin {OfU, ElseU}: break
++          if sub notin {OfU, ElifU, ElseU}: break
+           var br = n
+-          inc br # `of` or `else`
+-          if sub == OfU:
+-            skip br # set
+-          let brType = typeofBranchBody(c, br, flags)
+-          if brType.typeKind != VoidT:
+-            result = brType
+-            break
++          inc br # `of`, `elif` or `else`
++          if sub in {OfU, ElifU}:
++            skip br # set or condition
++          joinBranchType c, acc, sawNil, typeofBranchBody(c, br, flags)
+           skip n
++        result = finishBranchType(c, acc, sawNil)
+       of TryS:
+         var n = n
+         inc n
