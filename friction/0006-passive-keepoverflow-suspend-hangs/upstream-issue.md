@@ -16,7 +16,7 @@ proc main() {.passive.} = echo p()
 main()
 ```
 
-**Actual** at 358b9bc: compiles without a message, then hangs (no output).
+**Actual** at 0305d6c: compiles without a message, then hangs (no output).
 
 **Expected:** prints `0`, as it does with `{.cast(noSideEffect).}:` or a plain
 `block:` in place of `keepOverflowFlag`.
@@ -32,4 +32,4 @@ uninitialised continuation. The code after the call sits in state 0, after its
 PR with a fix and a test follows.
 
 <sub>Found while re-checking a json-server port to nimony with an AI coding
-assistant; repro and diagnosis checked by hand at 358b9bc.</sub>
+assistant; repro and diagnosis checked by hand at 0305d6c.</sub>

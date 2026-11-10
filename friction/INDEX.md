@@ -14,6 +14,7 @@ promoted.
 | 2026-09-23 | 0e1761f → b2c2df7 (upstream HEAD, 4 commits incl. #2575) | all six repros reproduce unchanged |
 | 2026-09-25 | b2c2df7 | causes of 0001, 0002, 0004 verified in the source; tested `fix.diff` for 0001–0004 |
 | 2026-10-27 | b2c2df7 → 358b9bc (159 commits; `~/lab/nimony` HEAD, upstream HEAD on 2026-10-26) | **0001 fixed** by #2569 and **0003 fixed** by #2695, independently. **0002's crash fixed**: someone else reported it as #2605, fixed by #2611; its other forms → new 0007. **0004, 0005 reproduce.** New: 0006 (a hang in #2569's fix, found by re-running 0001's variants), 0007, 0008 (found while testing 0006). Fixes for 0004–0007 tested on 358b9bc, each alone and all together (see below). Unpromoted inbox lines re-checked: see INBOX, 2026-10-27. |
+| 2026-11-10 | 358b9bc → 0305d6c (upstream HEAD, built in `~/lab/nimony`) | **0008 fixed** by #2950 (1674f31), independently; its "Expected" was a sticky flag, which #2881 ruled out. **0004, 0005, 0006, 0007 reproduce** (0005 prints an extra `Trace` line). 0006's fix re-tested on 0305d6c; drafts updated for filing. Unpromoted inbox lines not re-checked. |
 
 ### 2026-10-27, how it was checked
 

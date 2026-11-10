@@ -19,4 +19,4 @@
 | 0005 | An undeclared identifier on the right of a tuple-unpacking `let` is reported as "expected tuple for tuple unpacking" | nimony | bad-message | open | — |
 | 0006 | A passive call inside `{.keepOverflowFlag.}:` in a `.passive` proc compiles, then hangs at run time | nimony | hang | open | — |
 | 0007 | An if/case expression with a `nil` branch is still rejected when the `nil` comes second ("expected non-nil value") or has no destination type ("wanted: (nilt)") | nimony | wrong-behavior | open | — |
-| 0008 | Two chained operations in a `{.keepOverflowFlag.}:` block (`a + b + 1`) fail in lengc with "expected expression" and raw NIF | nimony | crash | open | — |
+| 0008 | Two chained operations in a `{.keepOverflowFlag.}:` block (`a + b + 1`) fail in lengc with "expected expression" and raw NIF | nimony | crash | fixed | #2950 (1674f31, fixed independently on 2026-11-09; never filed) |

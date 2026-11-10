@@ -22,8 +22,4 @@ Without the change it compiles and hangs.
 iter, closures, exceptions, basics, stdlib, streams, http, threads,
 ioringepoll}`.
 
-**Not covered:** `a + b + 1` inside `keepOverflowFlag` fails in lengc with or
-without `.passive` (#NNNN, the separate issue), so the test uses one operation
-per statement.
-
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

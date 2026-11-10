@@ -1,8 +1,8 @@
 diff --git a/src/hexer/coro_transform.nim b/src/hexer/coro_transform.nim
-index cdcbfe6..6e37bcd 100644
+index 8dd500c..abc607e 100644
 --- a/src/hexer/coro_transform.nim
 +++ b/src/hexer/coro_transform.nim
-@@ -1678,13 +1678,40 @@ proc trGoto*(c: var Context; dest: var TokenBuf; n: var Cursor) =
+@@ -1688,13 +1688,40 @@ proc trGoto*(c: var Context; dest: var TokenBuf; n: var Cursor) =
            # would flatten into several statements. A body that suspends must
            # be flattened all the same — its state labels belong at the top
            # level — and only a `cast` block can give up its wrapper for that,

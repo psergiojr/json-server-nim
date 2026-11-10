@@ -3,10 +3,10 @@ id: 0008
 title: Two chained operations in a `{.keepOverflowFlag.}:` block (`a + b + 1`) fail in lengc with "expected expression" and raw NIF
 date: 2026-10-27
 component: nimony
-version: nimony 0.6.3 @ 358b9bce4dd855453f57a80a0c499b0b2e27d7ee
+version: nimony 0.6.3 @ 358b9bce4dd855453f57a80a0c499b0b2e27d7ee; fixed at 0305d6c (re-checked 2026-11-10)
 severity: crash
-status: open
-upstream:
+status: fixed
+upstream: #2950 (1674f31, fixed independently on 2026-11-09; never filed)
 ---
 
 ## What I was doing
@@ -69,3 +69,36 @@ to a temp first), I did not establish.
 
 None yet. A test for `basicarith/` would add `let y = a + b + 1` (and a
 three-operand mix of `+`/`*`) to `toverflowflag.nim`.
+
+## Re-check at 0305d6c (2026-11-10)
+
+**Fixed upstream, independently:** #2950 (merged 2026-11-09), commit 1674f31
+"xelim: lower the operands of `keepovf` and `emit` statements". The suspected
+cause above was right: `constparams` leaves each checked operation as
+`(expr (stmts (var t) (keepovf OP t)) t)`, and xelim's `trStmt` copied
+`keepovf` verbatim, so a nested one reached lengc. xelim now lowers its
+operands, and each nested operation becomes its own `keepovf` before the
+statement. The commit adds `tests/nimony/basicarith/toverflowflag_nested.nim`,
+the test proposed above.
+
+Every row of the table now compiles. `repro.nim` prints `false`, not the
+`true` given under "Expected":
+
+| in a `keepOverflowFlag` block | 0305d6c |
+|---|---|
+| `let y = a + b` | `true` |
+| `let y = a + b + 1` (`repro.nim`) | `false` |
+| `let y = a + b + result` (passive proc, `result = 1`) | `false` |
+
+That is the documented behaviour, not a bug. Since #2860 (merged 2026-11-03),
+`doc/language.md` describes `keepOverflowFlag`: `overflowFlag()` reports
+whether the *last* signed `+`, `-` or `*` overflowed. In `a + b + 1` that is
+the `+ 1`, which doesn't overflow. At 358b9bc the C backend's flag was sticky
+(any overflowing operation set it, nothing cleared it), so `true` matched what
+the C backend did then. #2881 (merged 2026-11-04) made it non-sticky in C and
+LLVM, as the JS and native backends already were. So the "Expected" above
+relied on behaviour that was undocumented and has since changed on purpose.
+The note that `doc/` doesn't mention the pragma no longer holds.
+
+`upstream-issue.md` is kept as a record; it was never filed.
+
