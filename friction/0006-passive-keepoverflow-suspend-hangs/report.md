@@ -6,7 +6,7 @@ component: nimony
 version: nimony 0305d6c (re-checked 2026-11-10); written against 0.6.3 @ 358b9bce4dd855453f57a80a0c499b0b2e27d7ee
 severity: hang
 status: reported
-upstream: #2968 (issue only; PR waits for upstream's choice of fix)
+upstream: #2968 (PR #2982)
 ---
 
 ## What I was doing
