@@ -1,5 +1,5 @@
 diff --git a/src/hexer/coro_transform.nim b/src/hexer/coro_transform.nim
-index 8dd500c..abc607e 100644
+index 8dd500c1..abc607e2 100644
 --- a/src/hexer/coro_transform.nim
 +++ b/src/hexer/coro_transform.nim
 @@ -1688,13 +1688,40 @@ proc trGoto*(c: var Context; dest: var TokenBuf; n: var Cursor) =

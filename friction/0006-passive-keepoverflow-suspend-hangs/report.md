@@ -155,3 +155,16 @@ So the fix is not ready as a PR without a design decision. Possible directions:
 
 Plan (owner, 2026-11-10): file the issue alone, with these options, and wait
 for upstream's preference before opening a PR.
+
+## Upstream's choice (2026-11-12)
+
+Araq replied on #2968 (2026-11-11): "(1) it is." So the fix stays as in
+`fix.diff`, and the flag does not survive a suspension point.
+
+Re-checked at 4ba90a7 (2026-11-12): stock still hangs (`repro.nim` and the
+test, exit 124). On branch `keepoverflow-suspend-split` in
+`~/lab/contrib/nimony`, based on 4ba90a7: `repro.nim` prints `0`,
+`repro_flag_across_suspend.nim` prints `false` / `true` / `true`, and the
+suites named above pass (cps 66/66). `fix.diff` is regenerated from that
+branch. `upstream-pr.md` uses upstream's log style for its title, because the
+merge commit takes the PR title.
